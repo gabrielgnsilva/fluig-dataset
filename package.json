@@ -19,7 +19,7 @@
     "@angular/platform-browser-dynamic": "^17.0.0",
     "@angular/router": "^17.0.0",
     "oauth-1.0a": "^2.2.6",
-    "fluig-auth": "^0.0.3",
+    "fluig-auth": "^0.0.5",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
     "zone.js": "~0.14.2"
