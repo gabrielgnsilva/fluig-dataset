@@ -11,8 +11,11 @@ jobs:
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org/
-      - run: npm i
-      - run: npm run build
-      - run: npm publish dist/fluig-dataset --access public
+      - run: |
+          npm i
+          npm run build
+      - run: |
+          cd dist/fluig-dataset
+          npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{secrets.NPM_TOKEN}}
