@@ -12,6 +12,7 @@ jobs:
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org/
+      - run: npm i fluig-auth
       - run: npm ci
       - run: npm publish --access public
         env:

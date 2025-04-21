@@ -1,17 +1,5 @@
 import { InjectionToken } from '@angular/core';
-
-type SaveCacheAs = 'LOCAL' | 'SESSION';
-interface ExpirationTimes {
-  SHORT: number;
-  MEDIUM: number;
-  LONG: number;
-  VERYLONG: number;
-}
-export interface FluigDatasetConfig {
-  local_or_session: SaveCacheAs;
-  default: keyof ExpirationTimes;
-  times: ExpirationTimes;
-}
+import { FluigDatasetConfig } from './fluig-dataset';
 
 export const FLUIG_DATASET_CONFIG = new InjectionToken<FluigDatasetConfig>(
   'FLUIG_DATASET_CONFIG',
