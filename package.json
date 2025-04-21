@@ -3,10 +3,10 @@
   "version": "0.0.1",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve",
-    "build": "ng build",
-    "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "start": "ng serve fluig-dataset",
+    "build": "ng build fluig-dataset",
+    "watch": "ng build fluig-dataset --watch --configuration development",
+    "test": "ng test fluig-dataset"
   },
   "private": true,
   "dependencies": {
