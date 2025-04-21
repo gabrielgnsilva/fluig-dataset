@@ -16,11 +16,9 @@ import {
   ConstraintType,
   Dataset,
   DatasetSearch,
-} from './fluig.dataset';
-import {
-  FLUIG_DATASET_CONFIG,
-  FluigDatasetConfig,
-} from './fluig-dataset.config';
+} from './fluig-dataset';
+import { FluigDatasetConfig } from './fluig-dataset';
+import { FLUIG_DATASET_CONFIG } from './fluig-dataset.config';
 
 @Injectable({
   providedIn: 'root',
@@ -115,7 +113,9 @@ export class FluigDatasetService {
     };
   }
 
-  public getDataset<T>(args: DatasetSearch): Observable<Dataset<T>> {
+  public getDataset<T extends Record<string, any>>(
+    args: DatasetSearch,
+  ): Observable<Dataset<T>> {
     let params = new HttpParams().set('datasetId', args.id);
     if (args.orderBy) params = params.append('orderBy', args.orderBy);
     if (args.limit) params = params.append('limit', args.limit);

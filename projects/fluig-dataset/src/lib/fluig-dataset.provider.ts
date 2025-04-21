@@ -1,8 +1,6 @@
 import { Provider } from '@angular/core';
-import {
-  FLUIG_DATASET_CONFIG,
-  FluigDatasetConfig,
-} from './fluig-dataset.config';
+import { FLUIG_DATASET_CONFIG } from './fluig-dataset.config';
+import { FluigDatasetConfig } from './fluig-dataset';
 import { FluigDatasetService } from './fluig-dataset.service';
 
 export function provideFluigAuth(config: FluigDatasetConfig): Provider[] {
