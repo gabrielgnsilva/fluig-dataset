@@ -1,34 +1,35 @@
 {
   "name": "fluig-dataset",
-  "version": "0.0.2",
-  "scripts": {
-    "ng": "ng",
-    "start": "ng serve fluig-dataset",
-    "build": "ng build fluig-dataset",
-    "watch": "ng build fluig-dataset --watch --configuration development",
-    "test": "ng test fluig-dataset"
-  },
+  "version": "0.0.0",
   "private": true,
-  "dependencies": {
-    "fluig-auth": "^0.0.6",
-    "oauth-1.0a": "^2.2.6",
-    "tslib": "^2.3.0"
-  },
-  "peerDependencies": {
-    "@angular/common": ">=17.0.0 <21.0.0",
-    "@angular/compiler": ">=17.0.0 <21.0.0",
-    "@angular/core": ">=17.0.0 <21.0.0",
-    "@angular/forms": ">=17.0.0 <21.0.0",
-    "@angular/platform-browser": ">=17.0.0 <21.0.0",
-    "@angular/router": ">=17.0.0 <21.0.0",
-    "rxjs": "~7.8.0",
-    "zone.js": "0.14.x || 0.15.x"
+  "scripts": {
+    "build": "pnpm run build:lib",
+    "build:lib": "ng build fluig-dataset",
+    "watch:lib": "ng build fluig-dataset --watch",
+    "prepare:deploy": "./scripts/build/copy_readme.sh && pnpm run build",
+    "serve:demo": "ng serve demo"
   },
   "devDependencies": {
-    "@angular-devkit/build-angular": ">=17.0.0 <21.0.0",
-    "@angular/cli": ">=17.0.0 <21.0.0",
-    "@angular/compiler-cli": ">=17.0.0 <21.0.0",
-    "ng-packagr": ">=17.0.0 <21.0.0",
-    "typescript": ">=5.8 <5.9"
+    "@angular-devkit/build-angular": ">=19.0.0 <21.0.0",
+    "@angular/build": ">=19.0.0 <21.0.0",
+    "@angular/cli": ">=19.0.0 <21.0.0",
+    "@angular/compiler-cli": ">=19.0.0 <21.0.0",
+    "@types/crypto-js": "^4.2.2",
+    "crypto-js": "^4.2.0",
+    "ng-packagr": ">=19.0.0 <21.0.0",
+    "oauth-1.0a": "^2.2.6",
+    "typescript": "~5.8.2"
+  },
+  "dependencies": {
+    "@angular/common": ">=19.0.0 <21.0.0",
+    "@angular/compiler": ">=19.0.0 <21.0.0",
+    "@angular/core": ">=19.0.0 <21.0.0",
+    "@angular/forms": ">=19.0.0 <21.0.0",
+    "@angular/platform-browser": ">=19.0.0 <21.0.0",
+    "@angular/router": ">=19.0.0 <21.0.0",
+    "fluig-api": "^1.0.1",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0",
+    "zone.js": "~0.15.0"
   }
 }

@@ -4,6 +4,9 @@
 projects/*
 proxy.conf.json
 !projects/fluig-dataset
+!projects/demo
+projects/demo/src/environments/*
+!projects/demo/src/environments/environment.example.ts
 **/node_modules
 
 # Compiled output

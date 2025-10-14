@@ -1,176 +1,301 @@
+/** @format */
+
 import { HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import {
   Observable,
-  Subject,
   catchError,
+  finalize,
   from,
   of,
+  shareReplay,
   switchMap,
-  map,
   tap,
+  throwError,
 } from 'rxjs';
-import { FluigAuthService } from 'fluig-auth';
+
+import { FluigAPIService } from 'fluig-api';
+
 import {
+  Dataset,
   Constraint,
   ConstraintType,
-  Dataset,
-  DatasetSearch,
-} from './fluig-dataset';
-import { FluigDatasetConfig } from './fluig-dataset';
-import { FLUIG_DATASET_CONFIG } from './fluig-dataset.config';
+  DatasetOptions,
+  ConstraintOptions,
+  NULL_VALUE,
+} from './fluig-dataset.types';
+import { Expiration, FLUIG_DATASET_CONFIG } from './fluig-dataset.config';
 
-@Injectable({
-  providedIn: 'root',
-})
+class DatasetParams {
+  private params = new HttpParams();
+  set(key: string, value: string | number | boolean) {
+    this.params = this.params.set(key, value);
+    return this;
+  }
+  append(key: string, value: string | number | boolean) {
+    this.params = this.params.append(key, value);
+    return this;
+  }
+  getParams(): HttpParams {
+    return this.params;
+  }
+}
+
+@Injectable({ providedIn: 'root' })
 export class FluigDatasetService {
-  private unsubscribe$ = new Subject<void>();
-  private readonly datasetSearchURL = '/dataset/api/v2/dataset-handle/search';
-  private datasetConfig: FluigDatasetConfig;
+  private readonly cfg = inject(FLUIG_DATASET_CONFIG);
+  private readonly fluigAPI = inject(FluigAPIService);
 
-  constructor(private auth: FluigAuthService) {
-    this.datasetConfig = inject(FLUIG_DATASET_CONFIG);
+  private readonly inProgress = new Map<string, Observable<Dataset<any>>>();
+
+  private getExpirationTime(key: keyof Expiration): number {
+    if (!this.cfg) return 0;
+    if (!this.cfg.expiration) return 0;
+    if (!this.cfg.expiration.times) return 0;
+    return this.cfg.expiration.times[key] || 0;
   }
 
-  ngOnDestroy(): void {
-    this.unsubscribe$.next();
-    this.unsubscribe$.complete();
+  private makeCacheKey(datasetId: string, options?: DatasetOptions) {
+    return this.hash(`${datasetId}:${JSON.stringify(options)}`);
   }
 
-  private get isLocal(): boolean {
-    return this.datasetConfig.local_or_session === 'LOCAL';
+  private get useLocalStorage() {
+    return this.cfg.cacheType === 'LOCAL';
   }
-  private isCached(key: string): boolean {
+  private get useSessionStorage() {
+    return this.cfg.cacheType === 'SESSION';
+  }
+  private saveToLocalStorage(key: string, data: unknown) {
+    localStorage.setItem(key, JSON.stringify(data));
+  }
+  private saveToSessionStorage(key: string, data: unknown) {
+    sessionStorage.setItem(key, JSON.stringify(data));
+  }
+  private saveToStorage(key: string, data: unknown) {
+    if (this.useLocalStorage) this.saveToLocalStorage(key, data);
+    if (this.useSessionStorage) this.saveToSessionStorage(key, data);
+  }
+
+  private getItemFromLocalStorage(key: string) {
+    return localStorage.getItem(key);
+  }
+  private getItemFromSessionStorage(key: string) {
+    return sessionStorage.getItem(key);
+  }
+  private getCachedData(key: string) {
+    if (this.useLocalStorage) return this.getItemFromLocalStorage(key);
+    if (this.useSessionStorage) return this.getItemFromSessionStorage(key);
+    return null;
+  }
+  private isDataCached(key: string) {
     return this.getCachedData(key) != null;
   }
-  private saveCache(key: string, data: any): void {
-    if (this.isLocal) {
-      localStorage.setItem(key, JSON.stringify(data));
-    } else if (!this.isLocal) {
-      sessionStorage.setItem(key, JSON.stringify(data));
-    }
+
+  private removeDataFromLocalStorage(key: string): void {
+    localStorage.removeItem(key);
   }
-  private getCachedData(key: string): string | null {
-    if (this.isLocal) {
-      return localStorage.getItem(key);
-    } else {
-      return sessionStorage.getItem(key);
-    }
+  private removeDataFromSessionStorage(key: string): void {
+    sessionStorage.removeItem(key);
   }
   private removeCachedData(key: string): void {
-    if (this.isLocal) {
-      localStorage.removeItem(key);
-    } else {
-      sessionStorage.removeItem(key);
+    if (this.useLocalStorage) this.removeDataFromLocalStorage(key);
+    if (this.useSessionStorage) this.removeDataFromSessionStorage(key);
+  }
+
+  private async hash(text: string): Promise<string> {
+    const c = (globalThis as any).crypto;
+    if (!c) {
+      // Fallback to FNV-1a hash if crypto.subtle is not available
+      let h = 0x811c9dc5;
+      for (let i = 0; i < text.length; i++) {
+        h ^= text.charCodeAt(i);
+        h =
+          (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+      }
+      return h.toString(16);
     }
-  }
-  private async hashSHA512(text: string): Promise<string> {
+
     const encoder = new TextEncoder(),
       data = encoder.encode(text),
-      hashBuffer = await crypto.subtle.digest('SHA-512', data),
-      hashArray = Array.from(new Uint8Array(hashBuffer)),
-      hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
-    return hashHex;
-  }
-  private async hashSHA256(text: string): Promise<string> {
-    const encoder = new TextEncoder(),
-      data = encoder.encode(text),
-      hashBuffer = await crypto.subtle.digest('SHA-256', data),
+      hashBuffer = await c.subtle.digest('SHA-256', data),
       hashArray = Array.from(new Uint8Array(hashBuffer)),
       hashHex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
     return hashHex;
   }
 
-  public createSimpleConstraint(
-    field: string,
-    value: any | null,
-    type: ConstraintType,
-    likeSearch?: boolean | null,
-  ): Constraint {
-    return {
-      constraintsField: field,
-      constraintsInitialValue: value != null ? value : '___NULL___VALUE___',
-      constraintsFinalValue: value != null ? value : '___NULL___VALUE___',
-      constraintsType: type,
-      constraintsLikeSearch: likeSearch != null ? likeSearch : false,
-    };
-  }
-  public createConstraint(
-    field: string,
-    initialValue: any | null,
-    finalValue: any | null,
-    type: ConstraintType,
-    likeSearch?: boolean | null,
-  ): Constraint {
-    return {
-      constraintsField: field,
-      constraintsInitialValue:
-        initialValue != null ? initialValue : '___NULL___VALUE___',
-      constraintsFinalValue:
-        finalValue != null ? finalValue : '___NULL___VALUE___',
-      constraintsType: type,
-      constraintsLikeSearch: likeSearch != null ? likeSearch : false,
-    };
+  public createConstraint(options: ConstraintOptions): Constraint {
+    const hasValue = 'value' in options,
+      hasRange = 'range' in options;
+
+    if ((hasValue && hasRange) || (!hasValue && !hasRange)) {
+      throw new Error(
+        'ConstraintOptions must include either "value" or "range", but not both.'
+      );
+    }
+
+    const field = options.field;
+    const type: ConstraintType = options.type ?? 'MUST';
+    const likeSearch = options.likeSearch ?? false;
+
+    if (hasValue) {
+      const initialValue: Constraint['initialValue'] =
+        options.value ?? NULL_VALUE;
+
+      const finalValue: Constraint['finalValue'] =
+        options.type === undefined ? NULL_VALUE : initialValue;
+
+      return { field, initialValue, finalValue, type, likeSearch };
+    }
+
+    if (hasRange) {
+      const from: Constraint['initialValue'] =
+        options.range.from ?? NULL_VALUE;
+
+      const to: Constraint['finalValue'] =
+        options.range.to === undefined
+          ? from
+          : (options.range.to ?? NULL_VALUE);
+
+      return { field, initialValue: from, finalValue: to, type, likeSearch };
+    }
+
+    throw new Error(
+      'ConstraintOptions must include either "value" or "range", but not both.'
+    );
   }
 
-  public getDataset<T extends Record<string, any>>(
-    args: DatasetSearch,
+  private fetchAndCacheDataset<T extends Record<string, unknown>>(
+    datasetId: string,
+    cacheKey: string,
+    options?: DatasetOptions
   ): Observable<Dataset<T>> {
-    let params = new HttpParams().set('datasetId', args.id);
-    if (args.orderBy) params = params.append('orderBy', args.orderBy);
-    if (args.limit) params = params.append('limit', args.limit);
-    if (args.offset) params = params.append('offset', args.offset);
-    args.fields?.sort().forEach((field) => {
-      params = params.append('field', field);
-    });
-    args.constraints
-      ?.sort((a, b) => a.constraintsField.localeCompare(b.constraintsField))
-      .forEach((constraint) => {
-        params = params
-          .append('constraintsField', constraint.constraintsField)
-          .append('constraintsInitialValue', constraint.constraintsInitialValue)
-          .append('constraintsFinalValue', constraint.constraintsFinalValue)
-          .append('constraintsType', constraint.constraintsType)
-          .append(
-            'constraintsLikeSearch',
-            constraint.constraintsLikeSearch || false,
-          );
-      });
+    const expiration =
+      options == null || options.expiration == null
+        ? this.cfg.expiration && this.cfg.expiration.default
+          ? this.cfg.expiration.default
+          : 'NOCACHE'
+        : options.expiration;
+
     const cacheExpirationTime =
-      args.expiration != null
-        ? args.expiration === 'NOCACHE'
-          ? 0
-          : this.datasetConfig.times[args.expiration]
-        : this.datasetConfig.times[this.datasetConfig.default];
-    let cacheKey = JSON.stringify(args);
-    return from(this.hashSHA256(cacheKey)).pipe(
-      catchError((error) => {
-        throw new Error(error);
-      }),
-      switchMap((hashedKey) => {
-        cacheKey = hashedKey;
-        if (cacheExpirationTime > 0) {
-          const cachedItem = this.getCachedData(hashedKey);
-          if (cachedItem) {
-            const { data, timestamp } = JSON.parse(cachedItem),
-              date = Date.now() - timestamp;
-            if (date < cacheExpirationTime) {
-              return of(data as Dataset<T>);
-            } else {
-              this.removeCachedData(hashedKey);
-            }
+      expiration === 'NOCACHE' ? 0 : this.getExpirationTime(expiration);
+
+    if (cacheExpirationTime > 0) {
+      const cachedItem = this.getCachedData(cacheKey);
+      if (cachedItem) {
+        const { timestamp, data } = JSON.parse(cachedItem);
+        const age = Date.now() - timestamp;
+        if (age < cacheExpirationTime) {
+          return of(data as Dataset<T>);
+        }
+        this.removeCachedData(cacheKey);
+      }
+    }
+
+    const params = new DatasetParams();
+    params.set('datasetId', datasetId);
+
+    if (options != null) {
+      if (options.orderBy != null) {
+        const orderBy = options.orderBy.field;
+        const direction = options.orderBy.direction ?? 'asc';
+        params.set('orderBy', `${orderBy};${direction}`);
+      }
+
+      if (options.limit != null) {
+        params.set('limit', options.limit);
+      }
+
+      if (options.offset != null) {
+        params.set('offset', options.offset);
+      }
+
+      if (options.fields != null && options.fields.length > 0) {
+        options.fields.forEach((field) => params.append('field', field));
+      }
+
+      if (options.constraints != null && options.constraints.length > 0) {
+        options.constraints.forEach((constraint) => {
+          params
+            .append('constraintsField', constraint.field)
+            .append('constraintsInitialValue', constraint.initialValue)
+            .append('constraintsFinalValue', constraint.finalValue)
+            .append('constraintsType', constraint.type)
+            .append('constraintsLikeSearch', constraint.likeSearch);
+        });
+      }
+    }
+
+    return this.fluigAPI
+      .get<Dataset<T>>('/dataset/api/v2/dataset-handle/search', {
+        params: params.getParams(),
+      })
+      .pipe(
+        catchError((error) => throwError(() => error)),
+        tap((data) => {
+          if (cacheExpirationTime > 0 && !this.isDataCached(cacheKey)) {
+            this.saveToStorage(cacheKey, { timestamp: Date.now(), data });
           }
+        })
+      );
+  }
+
+  private normalizeOptions(
+    options?: DatasetOptions
+  ): DatasetOptions | undefined {
+    if (!options) return options;
+    return {
+      ...options,
+      fields: options.fields ? [...options.fields].sort() : undefined,
+      constraints: options.constraints
+        ? [...options.constraints].sort((a, b) =>
+            a.field.localeCompare(b.field)
+          )
+        : undefined,
+      orderBy: options.orderBy
+        ? {
+            field: options.orderBy.field,
+            direction: options.orderBy.direction ?? 'asc',
+          }
+        : undefined,
+    };
+  }
+
+  /**
+   * Fetches a dataset from Fluig API, with caching support.
+   * - If the dataset is already being fetched, it will return the same observable.
+   * - If the dataset is cached and not expired, it will return the cached data.
+   * - If the dataset is not cached or expired, it will fetch from the API and cache it.
+   *
+   * @param options DatasetOptions
+   * @returns Observable<Dataset<T>>
+   */
+  public getDataset<T extends Record<string, unknown>>(
+    datasetId: string,
+    options?: DatasetOptions
+  ): Observable<Dataset<T>> {
+    const normalized = this.normalizeOptions(options);
+    return from(this.makeCacheKey(datasetId, normalized)).pipe(
+      switchMap((hashedKey) => {
+        if (this.inProgress.has(hashedKey)) {
+          return this.inProgress.get(hashedKey) as Observable<Dataset<T>>;
         }
-        return this.auth.makeRequest.GET<Dataset<T>>(
-          this.datasetSearchURL,
-          params,
+
+        const source$ = this.fetchAndCacheDataset<T>(
+          datasetId,
+          hashedKey,
+          normalized
+        ).pipe(
+          finalize(() => this.inProgress.delete(hashedKey)),
+          shareReplay({ bufferSize: 1, refCount: false }),
+          catchError((error) => {
+            this.removeCachedData(hashedKey);
+            return throwError(() => error);
+          })
         );
-      }),
-      tap((data) => {
-        if (cacheExpirationTime > 0 && !this.isCached(cacheKey)) {
-          this.saveCache(cacheKey, { data, timestamp: Date.now() });
-        }
-      }),
+
+        this.inProgress.set(hashedKey, source$);
+        return source$;
+      })
     );
   }
 }

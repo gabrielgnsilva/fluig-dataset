@@ -1,156 +1,234 @@
-# Serviço Angular de Integração com Datasets do Fluig via OAuth 1.0a
+<!-- @format -->
 
-Este serviço Angular simula a interface do `DatasetFactory` do Fluig, utilizando `HttpClient` e integração com o pacote `fluig-auth`, consumindo datasets do Fluig e aproveitando o cache do navegador, constraints e filtros de forma tipada e simplificada.
+# Fluig Dataset
 
----
+Angular service to query **Fluig** datasets with caching and a small, typed API.
 
-## 📦 Funcionalidades
-
-- [x] Autenticação automática com **OAuth 1.0a**
-- [x] Requisições HTTP autenticadas: `GET`
-- [x] Tipagem genérica com `Observable<T>`
-- [x] Constraints, Fields e Ordenação
-- [ ] Tratamento de erros com `RxJS`
+**Repo:** github.com/gabrielgnsilva/fluig-dataset • **License:** MIT
 
 ---
 
-## 🚀 Uso
+## Key features (nuances that matter)
 
-### Requisitos
+- **Constraint builder**: single value or range; if `type` is omitted, it defaults to `'MUST'`. Nullish inputs are converted to `NULL_VALUE` to match Fluig semantics.
+- **Stable cache keys**: key = `datasetId` + **normalized** `DatasetOptions` (sorted `fields` and `constraints`), then hashed (SHA‑256, FNV‑1a fallback).
+- **Cache & TTL**: `SESSION` (default) or `LOCAL` storage. Override per call with `expiration: 'NOCACHE' | 'SHORT' | 'MEDIUM' | 'LONG' | 'VERYLONG'`.
+- **In‑flight de‑duplication**: identical concurrent requests share the same HTTP call; cache is written only once.
+- **Query shape**: `orderBy` is sent as `FIELD;asc|desc`. Endpoint used: `GET /dataset/api/v2/dataset-handle/search` via `FluigAPIService`.
+- **Error behavior**: failed requests purge the cache entry for that key.
 
-Este pacote **requer** a instalação e configuração do pacote `fluig-auth` para funcionar corretamente. O `fluig-auth` é responsável por realizar as requisições autenticadas à API REST do Fluig.
+> **Support**: Angular **19–20** only.
 
-- fluig-auth - [NPM](https://www.npmjs.com/package/fluig-auth)
+---
 
-### Importação
+## Prerequisites & peer deps
 
-Certifique-se de importar e injetar o serviço no seu componente ou outro serviço Angular:
+- [Node.js](https://nodejs.org/) which includes [Node Package Manager](https://www.npmjs.com/get-npm) (or whatever package manager you prefer, like [Yarn](https://yarnpkg.com/) or [PNPM](https://pnpm.io/))
+- [Angular](https://angular.dev/) (>= 19.x)
+- [fluig-api](https://github.com/gabrielgnsilva/fluig-api) (all HTTP requests go through this)
 
-```ts
-constructor(private datasetService: FluigDatasetService) {}
-```
-
-### Requisições
-
-Métodos disponíveis:
-
-#### getDataset
-
-Realiza a busca do dataset com suporte a cache, constraints e ordenação.
-
-```ts
-interface DatasetSearch {
-  id: string;
-  fields?: string[];
-  constraints?: Constraint[];
-  orderBy?: string | `${string};asc` | `${string};desc`;
-  limit?: number;
-  offset?: number;
-  expiration?: 'VERYLONG' | 'LONG' | 'MEDIUM' | 'SHORT' | 'NOCACHE';
-}
-
-type DatasetValue<T> = { [K in keyof T]: T[K] };
-export interface Dataset<T> {
-  columns: string[];
-  values: DatasetValue<T>[];
-}
-
-datasetService.getDataset<T>(args: DatasetSearch): Observable<Dataset<T>>
-```
-
-> 🔍 Caso não seja passado o parâmetro `expiration`, será utilizado o valor padrão configurado no **provider**. Se esse valor for omitido também, o tempo padrão de cache será de 10 horas, salvo no `sessionStorage`. Para desabilitar o cache por padrão, defina o valor `default: 'NOCACHE'` na configuração do provider (veja a seção de configurações).
-
-#### createSimpleConstraint
-
-Cria uma constraint simples (valor único).
-
-```ts
-type ConstraintType = 'MUST' | 'MUST_NOT' | 'SHOULD';
-
-datasetService.createSimpleConstraint(field: string, value: any, type: ConstraintType, likeSearch?: boolean): Constraint
-```
-
-#### createConstraint
-
-Cria uma constraint com valores inicial e final.
-
-```ts
-type ConstraintType = 'MUST' | 'MUST_NOT' | 'SHOULD';
-
-datasetService.createConstraint(field: string, initialValue: any, finalValue: any, type: ConstraintType, likeSearch?: boolean): Constraint
+```bash
+# install peers
+pnpm add crypto-js oauth-1.0a fluig-api fluig-dataset
+# or: npm i / yarn add / bun add
 ```
 
 ---
 
-## Exemplo de uso
+## Configuration
+
+Provide runtime options via the environment provider. Values are **deep‑merged** with defaults.
 
 ```ts
-constructor(private dataset: FluigDatasetService) {
-  this.colleagueList$ = dataset
-    .getDataset<{ login: string }>({
-      id: 'colleague',
-      constraints: [
-        dataset.createConstraint('sqlLimit', 1, 1, 'MUST'),
-        dataset.createConstraint('mail', '@dominio.com', '@dominio.com', 'SHOULD', true),
-      ],
-    })
-    .pipe(map((data) => data.values));
-}
-```
-
-### Configuração no `app.config.ts`
-
-Veja abaixo as opções disponíveis e configuração padrão do serviço, se o provider não for configurado:
-
-#### ✅ Usando `FLUIG_DATASET_CONFIG`
-
-```ts
-import { FLUIG_DATASET_CONFIG } from "fluig-dataset";
+// app.config.ts
+import { ApplicationConfig } from '@angular/core';
+import { provideHttpClient } from '@angular/common/http';
+import { provideFluigDatasetConfig } from 'fluig-dataset';
 
 export const appConfig: ApplicationConfig = {
   providers: [
-    {
-      provide: FLUIG_DATASET_CONFIG,
-      useValue: {
-        local_or_session: "SESSION", // "SESSION" ou  "LOCAL" - Onde salvar o DS como cache
-        default: "VERYLONG", // Tempo padrão de vida dos datasets no cache
+    provideHttpClient(),
+    provideFluigDatasetConfig({
+      cacheType: 'SESSION', // 'LOCAL' | 'SESSION'
+      expiration: {
+        default: 'MEDIUM', // per‑call default TTL
         times: {
-          SHORT: 600000, // 10 minutes
-          MEDIUM: 9000000, // 2.5 hours
-          LONG: 18000000, // 5 hours
-          VERYLONG: 90000000, // 10 hours
-        }, // Tempos de vida dos datasets quando salvos no cache
+          SHORT: 600_000, // 10 minutes
+          MEDIUM: 9_000_000, // 2.5 hours
+          LONG: 18_000_000, // 5 hours
+          VERYLONG: 36_000_000, // 10 hours
+        },
       },
-    },
+    }),
   ],
 };
 ```
 
-> 💡 Essa configuração define os tempos de vida do cache, bem como o local onde os dados devem ser armazenados: sessionStorage ('SESSION') ou localStorage ('LOCAL')
+### Configuration object (nuances)
+
+- **Shape**
+
+  ```ts
+  interface FluigDatasetConfig {
+    cacheType: 'LOCAL' | 'SESSION';
+    expiration?: {
+      default?: 'NOCACHE' | 'SHORT' | 'MEDIUM' | 'LONG' | 'VERYLONG';
+      times?: {
+        SHORT?: number;
+        MEDIUM?: number;
+        LONG?: number;
+        VERYLONG?: number;
+      };
+    };
+  }
+  ```
+
+- **Defaults** (if you provide nothing):
+  - `cacheType: 'SESSION'`
+  - `expiration.default: 'MEDIUM'`
+  - `times`: `SHORT=600_000`, `MEDIUM=9_000_000`, `LONG=18_000_000`, `VERYLONG=36_000_000` (ms)
+
+- **Merging**: `provideFluigDatasetConfig` performs a deep merge. Partial `times` overrides only the specified keys; the rest come from defaults.
+- **Per‑call override**: `DatasetOptions.expiration` beats config defaults. `'NOCACHE'` disables storage for that call.
+- **Storage target** is selected by `cacheType`: `'SESSION'` → `sessionStorage`, `'LOCAL'` → `localStorage`.
+- **Keying**: cache key = `datasetId` + **normalized** `DatasetOptions` (sorted `fields`, `constraints` by `field`, normalized `orderBy`), then hashed (SHA‑256, FNV‑1a fallback).
+- **SSR**: reads/writes Web Storage; use in browser only (or set `'NOCACHE'` when rendering server‑side).
+
+**About `fluig-api`**
+
+- **Local/dev**: often uses OAuth; configure base URL + OAuth **in `fluig-api`**.
+- **Production**: **no OAuth**; rely on Fluig auth (session/cookie/proxy). Tell `fluig-api` not to use OAuth in its own config.
+
+> This package never handles auth; it delegates to `FluigAPIService` from `fluig-api`.
 
 ---
 
-## 🧪 Dica Extra: Proxy Reverso em Desenvolvimento
+## Constraints — nuances & arguments
 
-Durante o desenvolvimento local, é comum enfrentar problemas de CORS ao tentar acessar o Fluig diretamente. Uma solução prática é configurar um **proxy reverso** para redirecionar requisições locais para o servidor Fluig.
+Use `createConstraint(options)` to avoid shape mistakes. The API enforces **XOR** between `value` and `range`.
 
-Você pode configurar isso com um arquivo `proxy.conf.json` e usá-lo em conjunto com o `ng serve`:
+```ts
+// Valid shapes
+{ field: string, type?: 'MUST'|'MUST_NOT'|'SHOULD', likeSearch?: boolean, value: string|number|boolean|null|undefined }
+{ field: string, type?: 'MUST'|'MUST_NOT'|'SHOULD', likeSearch?: boolean, range: { from: X|null|undefined, to?: X|null|undefined } }
+// Invalid → throws: both or neither of value/range
+```
 
-```json
-{
-  "/api": {
-    "target": "https://fluig.seuservidor.com",
-    "secure": true,
-    "changeOrigin": true,
-    "logLevel": "debug"
+### Behavioral details
+
+- **Type default**: if `type` is omitted, it defaults to `'MUST'` in both shapes.
+
+- **Single `value` shape**
+  - `initialValue = value ?? NULL_VALUE`
+  - `finalValue = (type is omitted) ? NULL_VALUE : initialValue`
+  - Rationale: when you don’t care about `finalValue`, omitting `type` means the final value is `NULL_VALUE` (i.e., "is null").
+
+- **`range` shape**
+  - `from => initialValue = from ?? NULL_VALUE`
+  - `to => finalValue = (to === undefined) ? from : (to ?? NULL_VALUE)`
+  - If `to` isn't provided, the constraint becomes a single‑point range.
+
+- **`NULL_VALUE`**: literal `___NULL___VALUE___`; represents Fluig `null` in both `initialValue` and/or `finalValue`.
+- **`likeSearch`**: when `true`, pass your own wildcard pattern (e.g., `'Gabriel%'`).
+- **Sorting**: constraints are sorted by `field` during normalization to stabilize cache keys (order‑independent).
+- **Error handling**: providing both `value` and `range`, or neither, throws an error.
+
+#### Minimal examples
+
+```ts
+// Single exact match
+this.ds.createConstraint({ field: 'active', value: true, type: 'MUST' });
+
+// LIKE search
+this.ds.createConstraint({
+  field: 'colleagueName',
+  value: 'Gabriel%',
+  likeSearch: true,
+  type: 'MUST',
+});
+
+// Range [0..3000], default type 'MUST'
+this.ds.createConstraint({
+  field: 'userTenantId',
+  range: { from: 0, to: 3000 },
+});
+
+// Single value without type => finalValue becomes `NULL_VALUE`
+this.ds.createConstraint({ field: 'email', value: 'example@domain.com' });
+
+// Explicit range with inferred type 'MUST' (you can specify it if you need).
+this.ds.createConstraint({
+  field: 'endDate',
+  range: { from: '2025-01-01', to: '2025-01-05' },
+});
+```
+
+---
+
+## Usage (minimal)
+
+```ts
+import { inject } from '@angular/core';
+import { FluigDatasetService } from 'fluig-dataset';
+
+interface Row {
+  login: string;
+  colleagueName: string;
+}
+
+class Example {
+  private readonly ds = inject(FluigDatasetService);
+
+  load() {
+    const constraints = [
+      this.ds.createConstraint({ field: 'active', value: true, type: 'MUST' }),
+      this.ds.createConstraint({
+        field: 'colleagueName',
+        value: 'Gabriel%',
+        type: 'MUST',
+        likeSearch: true,
+      }),
+    ];
+
+    return this.ds.getDataset<Row>('colleague', {
+      fields: ['login', 'colleagueName'],
+      constraints,
+      orderBy: { field: 'colleagueName', direction: 'asc' },
+      limit: 10,
+      expiration: 'SHORT',
+    });
   }
 }
 ```
 
-Em seguida, rode o Angular com:
+> **Note**: `getDataset<T>` returns an `Observable<Dataset<T>>`. Use `async` pipe or subscribe.
 
-```bash
-ng serve --proxy-config proxy.conf.json
-```
+---
 
-📖 Leia mais sobre isso no post: [Como Resolver Problemas de CORS com Fluig Usando Proxy Reverso no Angular](https://devoncommand.com/pt/posts/programming/2025/proxy-angular-fluig/)
+## Troubleshooting
+
+### Handling CORS Issues
+
+Use `fluig-api` with a reverse proxy to avoid CORS issues when working with Fluig in Angular applications. This setup allows your Angular app to communicate with the Fluig backend without running into cross-origin request problems.
+
+You can read more about this in my blog post[^1] and in the Angular documentation[^2] and in the `fluig-api` README[^3].
+
+[^1]: [How to Fix CORS Issues with Fluig Using Reverse Proxy in Angular](https://devoncommand.com/posts/programming/2025/proxy-angular-fluig/)
+
+[^2]: [Proxying to a backend server](https://angular.dev/tools/cli/serve#proxying-to-a-backend-server)
+
+[^3]: [FluigAPI](https://github.com/gabrielgnsilva/fluig-api)
+
+---
+
+## Contribution
+
+PRs and issues are welcome. Follow Angular’s style guide and keep APIs standalone-friendly (`inject()`, signals). Conventional commits preferred.
+
+---
+
+## Contact & Support
+
+- Issues: [https://github.com/gabrielgnsilva/fluig-dataset/issues](https://github.com/gabrielgnsilva/fluig-dataset/issues)
+- Author: Gabriel Nascimento
+- Support window: **Angular 19–20**
