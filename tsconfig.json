@@ -5,6 +5,9 @@
     "paths": {
       "fluig-dataset": [
         "./dist/fluig-dataset"
+      ],
+      "test-lib": [
+        "./dist/test-lib"
       ]
     },
     "outDir": "./dist/out-tsc",
@@ -34,5 +37,13 @@
     "strictInjectionParameters": true,
     "strictInputAccessModifiers": true,
     "strictTemplates": true
-  }
+  },
+  "references": [
+    {
+      "path": "./projects/demo/tsconfig.app.json"
+    },
+    {
+      "path": "./projects/demo/tsconfig.spec.json"
+    }
+  ]
 }

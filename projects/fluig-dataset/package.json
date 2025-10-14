@@ -1,9 +1,11 @@
 {
   "name": "fluig-dataset",
-  "version": "0.0.5",
+  "version": "1.0.0",
   "license": "MIT",
-  "description": "Serviço angular para consumo de datasets no Fluig",
+  "description": "Angular service for consuming datasets in Fluig",
   "author": "Gabriel Nascimento",
+  "type": "module",
+  "exports": {},
   "repository": {
     "type": "git",
     "url": "https://github.com/gabrielgnsilva/fluig-dataset.git"
@@ -17,13 +19,14 @@
     "url": "https://github.com/gabrielgnsilva/fluig-dataset/issues"
   },
   "homepage": "https://github.com/gabrielgnsilva/fluig-dataset#readme",
-  "peerDependencies": {
-    "@angular/common": ">=17.0.0 <21.0.0",
-    "@angular/core": ">=17.0.0 <21.0.0",
-    "fluig-auth": "^0.0.6"
-  },
   "dependencies": {
     "tslib": "^2.3.0"
+  },
+  "devDependencies": {},
+  "peerDependencies": {
+    "@angular/common": ">=19.0.0 <21.0.0",
+    "@angular/core": ">=19.0.0 <21.0.0",
+    "fluig-api": "^1.0.0"
   },
   "sideEffects": false
 }
